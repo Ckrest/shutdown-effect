@@ -1,0 +1,7 @@
+{
+  "name": "shutdown-effect",
+  "description": "Customizable shutdown/reboot animations for Linux desktops",
+  "topics": ["shutdown", "animation", "linux", "desktop", "python", "gtk"],
+  "private": false,
+  "homepage": "https://ckrest.dev/projects/shutdown-effect/"
+}
