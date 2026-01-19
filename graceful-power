@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+"""
+Graceful power management for Wayfire
+
+Closes all windows properly (triggering animations), waits for them to close,
+then executes the power action. This ensures apps save their state and
+prevents "crashed" messages on next boot.
+
+Usage:
+    graceful-power shutdown    # Graceful shutdown
+    graceful-power reboot      # Graceful reboot
+    graceful-power logout      # Graceful logout (session only)
+"""
+
+import sys
+import time
+import subprocess
+import os
+
+# Try wayfire library first, fall back to manual IPC
+try:
+    from wayfire import WayfireSocket
+    USE_WAYFIRE_LIB = True
+except ImportError:
+    USE_WAYFIRE_LIB = False
+    import socket
+    import json
+
+
+# Configuration
+CLOSE_TIMEOUT = 10  # Max seconds to wait for windows to close
+POLL_INTERVAL = 0.2  # How often to check if windows closed
+ANIMATION_DELAY = 0.3  # Delay between closing windows (for staggered fire effect)
+
+
+def get_wayfire_socket():
+    """Connect to Wayfire IPC"""
+    if USE_WAYFIRE_LIB:
+        return WayfireSocket()
+    else:
+        # Manual socket connection
+        socket_path = f"/run/user/{os.getuid()}/wayfire-wayland-1-.socket"
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(socket_path)
+        return sock
+
+
+def send_ipc(sock, method, data=None):
+    """Send IPC command (for manual socket mode)"""
+    message = {"method": method, "data": data or {}}
+    msg_json = json.dumps(message) + "\n"
+    sock.sendall(msg_json.encode())
+
+    response = b""
+    while True:
+        chunk = sock.recv(4096)
+        response += chunk
+        if b"\n" in chunk:
+            break
+    return json.loads(response.decode())
+
+
+def list_views(sock):
+    """Get list of all views"""
+    if USE_WAYFIRE_LIB:
+        return sock.list_views()
+    else:
+        return send_ipc(sock, "window-rules/list-views")
+
+
+def close_view(sock, view_id):
+    """Close a specific view"""
+    if USE_WAYFIRE_LIB:
+        return sock.close_view(view_id)
+    else:
+        return send_ipc(sock, "window-rules/close-view", {"id": view_id})
+
+
+def get_toplevel_windows(sock):
+    """Get list of toplevel application windows (not panels/overlays)"""
+    views = list_views(sock)
+
+    # Filter to actual application windows
+    toplevels = []
+    for v in views:
+        app_id = v.get('app-id', '')
+        title = v.get('title', '')
+        view_type = v.get('type', '')
+
+        # Skip layer-shell surfaces (panels, wallpaper, overlays)
+        if 'layer' in str(view_type).lower():
+            continue
+        if app_id == 'gtk-layer-shell':
+            continue
+        if app_id == 'mpvpaper':  # Wallpaper
+            continue
+        if not title or title == 'nil':
+            continue
+
+        toplevels.append({
+            'id': v.get('id'),
+            'app_id': app_id,
+            'title': title[:50]
+        })
+
+    return toplevels
+
+
+def graceful_close_all(stagger=True):
+    """Close all windows gracefully"""
+    try:
+        sock = get_wayfire_socket()
+    except Exception as e:
+        print(f"Could not connect to Wayfire: {e}")
+        return False
+
+    windows = get_toplevel_windows(sock)
+
+    if not windows:
+        print("No windows to close")
+        return True
+
+    print(f"Closing {len(windows)} windows...")
+
+    # Close all windows
+    for w in windows:
+        print(f"  Closing: {w['app_id']} - {w['title']}")
+        try:
+            close_view(sock, w['id'])
+            if stagger and len(windows) > 1:
+                time.sleep(ANIMATION_DELAY)  # Stagger for visual effect
+        except Exception as e:
+            print(f"    Warning: Could not close {w['app_id']}: {e}")
+
+    # Wait for windows to actually close
+    print("Waiting for windows to close...")
+    start_time = time.time()
+
+    while time.time() - start_time < CLOSE_TIMEOUT:
+        try:
+            # Reconnect in case socket was affected
+            sock = get_wayfire_socket()
+            remaining = get_toplevel_windows(sock)
+
+            if not remaining:
+                print("All windows closed successfully")
+                return True
+
+            # Show what's still open
+            if int((time.time() - start_time) * 2) % 2 == 0:  # Every ~1 second
+                still_open = [w['app_id'] for w in remaining[:3]]
+                print(f"  Still waiting for: {', '.join(still_open)}...")
+
+            time.sleep(POLL_INTERVAL)
+
+        except Exception:
+            # Socket might be gone if session is ending
+            time.sleep(POLL_INTERVAL)
+
+    # Timeout reached
+    try:
+        sock = get_wayfire_socket()
+        remaining = get_toplevel_windows(sock)
+        if remaining:
+            print(f"Timeout: {len(remaining)} windows did not close in time")
+            for w in remaining:
+                print(f"  - {w['app_id']}: {w['title']}")
+    except:
+        pass
+
+    return True  # Proceed anyway
+
+
+def execute_power_action(action):
+    """Execute the actual power action"""
+    commands = {
+        'shutdown': ['systemctl', 'poweroff'],
+        'reboot': ['systemctl', 'reboot'],
+        'logout': ['loginctl', 'terminate-user', os.environ['USER']],
+    }
+
+    if action not in commands:
+        print(f"Unknown action: {action}")
+        print("Valid actions: shutdown, reboot, logout")
+        sys.exit(1)
+
+    cmd = commands[action]
+    print(f"Executing: {' '.join(cmd)}")
+    subprocess.run(cmd)
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(1)
+
+    action = sys.argv[1].lower()
+
+    if action in ['--help', '-h', 'help']:
+        print(__doc__)
+        sys.exit(0)
+
+    print(f"=== Graceful {action.title()} ===")
+
+    # Close all windows
+    graceful_close_all(stagger=True)
+
+    # Small delay for animations to complete
+    time.sleep(0.5)
+
+    # Execute power action
+    execute_power_action(action)
+
+
+if __name__ == "__main__":
+    main()
