@@ -1,0 +1,21 @@
+[project]
+name = "shutdown-effect"
+description = "Visual shutdown animations with hook system for power transitions"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+authors = [{name = "Ckrest"}]
+dependencies = [
+    "PyGObject>=3.42",
+    "platformdirs>=4.0",
+]
+
+[project.urls]
+Repository = "https://github.com/Ckrest/shutdown-effect"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

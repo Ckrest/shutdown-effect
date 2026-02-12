@@ -1,0 +1,24 @@
+# Environment
+.env
+venv/
+
+# Python
+__pycache__/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Build
+build/
+dist/
+
+# Data & logs
+*.log
+*.db
+*.sqlite3
+*.pkl
+*.pt

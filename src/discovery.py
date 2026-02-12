@@ -3,7 +3,7 @@ Animation discovery for shutdown-effect.
 
 Finds available animations by merging from multiple sources (highest priority first):
 1. SHUTDOWN_EFFECTS_DIR environment variable (explicit override - exclusive)
-2. ~/.config/shutdown-effect/animations/ (XDG user config)
+2. XDG user config dir / animations/ (via platformdirs)
 3. Package-local ./animations/ (bundled defaults)
 
 If SHUTDOWN_EFFECTS_DIR is set, only that directory is used.
@@ -16,8 +16,10 @@ the shutdown-effect protocol (prints READY then BLACK to stdout).
 import os
 from pathlib import Path
 
+from platformdirs import user_config_dir
+
 # XDG config location
-XDG_ANIMATIONS_DIR = Path.home() / ".config" / "shutdown-effect" / "animations"
+XDG_ANIMATIONS_DIR = Path(user_config_dir("shutdown-effect")) / "animations"
 
 # Package-local animations (bundled defaults)
 LOCAL_ANIMATIONS_DIR = Path(__file__).parent / "animations"
@@ -39,7 +41,7 @@ def get_all_animations() -> dict[str, Path]:
 
     Priority (highest first):
     1. SHUTDOWN_EFFECTS_DIR (if set, exclusive)
-    2. XDG user config (~/.config/shutdown-effect/animations/)
+    2. XDG user config dir / animations/ (via platformdirs)
     3. Package-local bundled defaults (./animations/)
 
     User animations override bundled animations with the same name.
