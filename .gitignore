@@ -15,6 +15,7 @@ __pycache__/
 # Build
 build/
 dist/
+*.egg-info/
 
 # Data & logs
 *.log
